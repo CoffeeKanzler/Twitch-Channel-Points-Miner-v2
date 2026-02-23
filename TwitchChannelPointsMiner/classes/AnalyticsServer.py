@@ -231,7 +231,9 @@ class AnalyticsServer(Thread):
         port: int = 5000,
         refresh: int = 5,
         days_ago: int = 7,
-        username: str = None
+        username: str = None,
+        currently_watching: list = None,
+        streamers: list = None,
     ):
         super(AnalyticsServer, self).__init__()
 
@@ -242,6 +244,8 @@ class AnalyticsServer(Thread):
         self.refresh = refresh
         self.days_ago = days_ago
         self.username = username
+        self.currently_watching = currently_watching if currently_watching is not None else []
+        self.streamers = streamers if streamers is not None else []
 
         def generate_log():
             global last_sent_log_index  # Use the global variable
@@ -283,8 +287,29 @@ class AnalyticsServer(Thread):
         )
         self.app.add_url_rule("/json_all", "json_all",
                               json_all, methods=["GET"])
+        def watching_now():
+            watching = list(self.currently_watching)
+            online = [s.username for s in self.streamers if s.is_online]
+            return Response(
+                json.dumps({
+                    # new fields
+                    "watching": watching,
+                    "online": online,
+                    "count_watching": len(watching),
+                    "count_online": len(online),
+                    # backward-compat fields
+                    "count": len(watching),
+                    "channels": watching,
+                    "channels_str": ", ".join(watching) if watching else "none",
+                }),
+                status=200,
+                mimetype="application/json",
+            )
+
         self.app.add_url_rule(
             "/log", "log", generate_log, methods=["GET"])
+        self.app.add_url_rule(
+            "/watching", "watching", watching_now, methods=["GET"])
 
     def run(self):
         logger.info(
