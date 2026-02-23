@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import logging
 import os
 import random
@@ -195,7 +196,7 @@ class TwitchChannelPointsMiner:
                 days_ago=days_ago,
                 username=self.username,
                 currently_watching=self.twitch.currently_watching,
-                streamers=self.streamers,
+                all_streamers=self.streamers,
             )
             http_server.daemon = True
             http_server.name = "Analytics Thread"
@@ -256,6 +257,20 @@ class TwitchChannelPointsMiner:
                     if username not in streamers_dict and username not in blacklist:
                         streamers_name.append(username)
                         streamers_dict[username] = username.lower().strip()
+
+            # Apply saved watch priority order to streamers_name before loading,
+            # so the list is in priority order from the first append.
+            _priority_file = os.path.join(Settings.analytics_path, "streamer_priority.json")
+            if os.path.exists(_priority_file):
+                try:
+                    with open(_priority_file) as _f:
+                        _order = json.load(_f)
+                    _order_index = {u: i for i, u in enumerate(_order)}
+                    streamers_name.sort(
+                        key=lambda u: _order_index.get(u, len(_order))
+                    )
+                except Exception:
+                    pass
 
             logger.info(
                 f"Loading data for {len(streamers_name)} streamers. Please wait...",
