@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Watch Priority — Twitch-Channel-Points-Miner-v2</title>
+    <link rel="icon" type="image/png" sizes="32x32"
+        href="https://static.twitchcdn.net/assets/favicon-32-e29e246c157142c94346.png">
+    <link rel="icon" type="image/png" sizes="16x16"
+        href="https://static.twitchcdn.net/assets/favicon-16-52e571ffea063af7a7f4.png">
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.6.1/css/bulma.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet"
+        integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+    <link href="{{url_for('static', filename='dark-theme.css')}}" rel="stylesheet" />
+    <link href="{{url_for('static', filename='style.css')}}" rel="stylesheet" />
+
+    <style>
+        .priority-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .priority-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #dbdbdb;
+            background: #fff;
+            cursor: grab;
+            user-select: none;
+        }
+        .priority-item:active {
+            cursor: grabbing;
+        }
+        .priority-item .handle {
+            margin-right: 1rem;
+            color: #b5b5b5;
+            font-size: 1.1rem;
+        }
+        .priority-item .username {
+            flex: 1;
+            font-weight: 600;
+        }
+        .priority-item .badge {
+            font-size: 0.8rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .badge-watching {
+            background: #23d160;
+            color: #fff;
+        }
+        .badge-online {
+            background: #3273dc;
+            color: #fff;
+        }
+        .badge-offline {
+            background: #dbdbdb;
+            color: #7a7a7a;
+        }
+        .sortable-ghost {
+            opacity: 0.4;
+        }
+        .dark-mode .priority-item {
+            background: #2b2b3b;
+            border-color: #444;
+            color: #f5f5f5;
+        }
+        .dark-mode .priority-item .handle {
+            color: #666;
+        }
+        #status-msg {
+            min-height: 1.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container" style="max-width: 700px; padding: 1.5rem;">
+        <div class="has-text-centered" style="margin-bottom: 1.5rem;">
+            <a href="/"><img style="max-width: 500px; width: 100%;"
+                src="{{url_for('static', filename='banner.png')}}" alt="banner"></a>
+        </div>
+
+        <div class="level" style="margin-bottom: 0.5rem;">
+            <div class="level-left">
+                <div class="level-item">
+                    <div>
+                        <p class="title is-5" style="margin-bottom: 0.2rem;">Watch Priority</p>
+                        <p class="subtitle is-6">Drag to reorder. Top 2 online streamers get watched.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="level-right">
+                <div class="level-item">
+                    <button class="button is-success" id="save-btn" onclick="saveOrder()">
+                        <span class="icon"><i class="fas fa-save"></i></span>
+                        <span>Save order</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 0.75rem;">
+            <a href="/" class="has-text-grey">
+                <span class="icon"><i class="fas fa-arrow-left"></i></span>
+                <span>Back to dashboard</span>
+            </a>
+        </div>
+
+        <ul class="priority-list" id="priority-list">
+            <li style="padding: 1rem; color: #aaa;">Loading...</li>
+        </ul>
+
+        <p id="status-msg" style="margin-top: 0.75rem; font-size: 0.9rem;"></p>
+    </div>
+
+    <script>
+        let sortable = null;
+        let refreshTimer = null;
+        let isDirty = false;
+
+        function applyDarkMode() {
+            if (localStorage.getItem("dark-mode") === "true") {
+                document.body.classList.add("dark-mode");
+            }
+        }
+
+        function badgeHtml(item) {
+            if (item.watching) {
+                return '<span class="badge badge-watching">watching</span>';
+            } else if (item.is_online) {
+                return '<span class="badge badge-online">online</span>';
+            } else {
+                return '<span class="badge badge-offline">offline</span>';
+            }
+        }
+
+        function renderList(items) {
+            const list = document.getElementById("priority-list");
+            list.innerHTML = "";
+            items.forEach(function(item) {
+                const li = document.createElement("li");
+                li.className = "priority-item";
+                li.dataset.username = item.username;
+                li.innerHTML =
+                    '<span class="handle"><i class="fas fa-grip-vertical"></i></span>' +
+                    '<span class="username">' + escapeHtml(item.username) + '</span>' +
+                    badgeHtml(item);
+                list.appendChild(li);
+            });
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/[&<>"']/g, function(c) {
+                return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+            });
+        }
+
+        function getCurrentOrder() {
+            return Array.from(document.querySelectorAll("#priority-list .priority-item"))
+                .map(function(el) { return el.dataset.username; });
+        }
+
+        function loadOrder(preserveOrder) {
+            fetch("/priority/order")
+                .then(function(r) { return r.json(); })
+                .then(function(items) {
+                    if (preserveOrder) {
+                        // Update badges without resetting drag order
+                        const currentOrder = getCurrentOrder();
+                        const byName = {};
+                        items.forEach(function(i) { byName[i.username] = i; });
+                        currentOrder.forEach(function(name) {
+                            const el = document.querySelector(
+                                '#priority-list [data-username="' + name + '"]'
+                            );
+                            if (el && byName[name]) {
+                                const badge = el.querySelector(".badge");
+                                if (badge) {
+                                    badge.outerHTML = badgeHtml(byName[name]);
+                                }
+                            }
+                        });
+                    } else {
+                        renderList(items);
+                        if (sortable) sortable.destroy();
+                        sortable = Sortable.create(document.getElementById("priority-list"), {
+                            animation: 150,
+                            handle: ".handle",
+                            ghostClass: "sortable-ghost",
+                            onEnd: function() { isDirty = true; }
+                        });
+                    }
+                })
+                .catch(function(e) {
+                    setStatus("Error loading order: " + e.message, "has-text-danger");
+                });
+        }
+
+        function saveOrder() {
+            const order = getCurrentOrder();
+            fetch("/priority/order", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({order: order})
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function() {
+                isDirty = false;
+                setStatus("Saved!", "has-text-success");
+                setTimeout(function() { setStatus(""); }, 3000);
+            })
+            .catch(function(e) {
+                setStatus("Save failed: " + e.message, "has-text-danger");
+            });
+        }
+
+        function setStatus(msg, cls) {
+            const el = document.getElementById("status-msg");
+            el.textContent = msg;
+            el.className = cls || "";
+        }
+
+        function scheduleRefresh() {
+            refreshTimer = setInterval(function() {
+                loadOrder(true);  // preserve current drag order, just update badges
+            }, 10000);
+        }
+
+        applyDarkMode();
+        loadOrder(false);
+        scheduleRefresh();
+    </script>
+</body>
+
+</html>

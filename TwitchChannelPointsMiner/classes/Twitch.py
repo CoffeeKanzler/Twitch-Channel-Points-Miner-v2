@@ -58,6 +58,7 @@ class Twitch(object):
         "user_agent",
         "twitch_login",
         "running",
+        "currently_watching",
         "device_id",
         # "integrity",
         # "integrity_expire",
@@ -78,6 +79,7 @@ class Twitch(object):
             CLIENT_ID, self.device_id, username, self.user_agent, password=password
         )
         self.running = True
+        self.currently_watching = []
         # self.integrity = None
         # self.integrity_expire = 0
         self.client_session = token_hex(16)
@@ -98,7 +100,7 @@ class Twitch(object):
     def update_stream(self, streamer):
         if streamer.stream.update_required() is True:
             stream_info = self.get_stream_info(streamer)
-            if stream_info is not None:
+            if stream_info is not None and stream_info.get("broadcastSettings") is not None:
                 streamer.stream.update(
                     broadcast_id=stream_info["stream"]["id"],
                     title=stream_info["broadcastSettings"]["title"],
@@ -476,6 +478,7 @@ class Twitch(object):
                         streamers_watching.update(streamers_with_multiplier[:remaining_watch_amount()])
 
                 streamers_watching = list(streamers_watching)[:max_watch_amount]
+                self.currently_watching[:] = [streamers[i].username for i in streamers_watching]
 
                 for index in streamers_watching:
                     # next_iteration = time.time() + 60 / len(streamers_watching)
@@ -676,6 +679,8 @@ class Twitch(object):
             if response["data"]["community"] is None:
                 raise StreamerDoesNotExistException
             channel = response["data"]["community"]["channel"]
+            if channel is None or channel.get("self") is None:
+                return
             community_points = channel["self"]["communityPoints"]
             streamer.channel_points = community_points["balance"]
             streamer.activeMultipliers = community_points["activeMultipliers"]
