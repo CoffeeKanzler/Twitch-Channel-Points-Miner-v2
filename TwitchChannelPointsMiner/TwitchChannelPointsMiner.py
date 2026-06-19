@@ -14,6 +14,7 @@ from pathlib import Path
 
 from TwitchChannelPointsMiner.classes.Chat import ChatPresence, ThreadChat
 from TwitchChannelPointsMiner.classes.entities.PubsubTopic import PubsubTopic
+from TwitchChannelPointsMiner.classes.WatchStreakMaintainer import WatchStreakMaintainer
 from TwitchChannelPointsMiner.classes.entities.Streamer import (
     Streamer,
     StreamerSettings,
@@ -63,6 +64,7 @@ class TwitchChannelPointsMiner:
         "events_predictions",
         "minute_watcher_thread",
         "sync_campaigns_thread",
+        "watch_streak_maintainer",
         "ws_pool",
         "session_id",
         "running",
@@ -147,6 +149,7 @@ class TwitchChannelPointsMiner:
         self.events_predictions = {}
         self.minute_watcher_thread = None
         self.sync_campaigns_thread = None
+        self.watch_streak_maintainer = None
         self.ws_pool = None
 
         self.session_id = str(uuid.uuid4())
@@ -276,6 +279,10 @@ class TwitchChannelPointsMiner:
                 f"Loading data for {len(streamers_name)} streamers. Please wait...",
                 extra={"emoji": ":nerd_face:"},
             )
+            from TwitchChannelPointsMiner.classes.Twitch import STREAK_WATCH_MINUTES
+            self.watch_streak_maintainer = WatchStreakMaintainer(
+                self.twitch, streak_watch_minutes=STREAK_WATCH_MINUTES
+            )
             for username in streamers_name:
                 if username in streamers_name:
                     time.sleep(random.uniform(0.3, 0.7))
@@ -299,6 +306,7 @@ class TwitchChannelPointsMiner:
                                 streamer.username,
                             )
                         self.streamers.append(streamer)
+                        streamer.watch_streak_maintainer = self.watch_streak_maintainer
                     except StreamerDoesNotExistException:
                         logger.info(
                             f"Streamer {username} does not exist",
@@ -350,6 +358,15 @@ class TwitchChannelPointsMiner:
             )
             self.minute_watcher_thread.name = "Minute watcher"
             self.minute_watcher_thread.start()
+
+            if at_least_one_value_in_settings_is(
+                self.streamers, "watch_streak_vod_recovery", True
+            ):
+                self.watch_streak_maintainer.start()
+            else:
+                self.watch_streak_maintainer = None
+                for streamer in self.streamers:
+                    streamer.watch_streak_maintainer = None
 
             self.ws_pool = WebSocketsPool(
                 twitch=self.twitch,
@@ -450,6 +467,11 @@ class TwitchChannelPointsMiner:
 
         if self.minute_watcher_thread is not None:
             self.minute_watcher_thread.join()
+
+        if self.watch_streak_maintainer is not None:
+            self.watch_streak_maintainer.stop()
+            if self.watch_streak_maintainer.is_alive():
+                self.watch_streak_maintainer.join()
 
         if self.sync_campaigns_thread is not None:
             self.sync_campaigns_thread.join()
