@@ -214,6 +214,52 @@ class Twitch(object):
         except (KeyError, TypeError, IndexError):
             return None
 
+    def watch_vod_for_streak(self, streamer, vod_id, max_minutes=8):
+        """POST VOD minute-watched events to the channel spade URL until the
+        watch streak is awarded or max_minutes elapses."""
+        if streamer.stream.spade_url is None:
+            self.get_spade_url(streamer)
+        if streamer.stream.spade_url is None:
+            logger.debug(f"No spade_url for {streamer}; skip VOD streak recovery")
+            return
+
+        # NOTE: these property keys are validated against a live spike before release.
+        properties = {
+            "channel_id": streamer.channel_id,
+            "broadcast_id": None,
+            "player": "site",
+            "user_id": self.twitch_login.get_user_id(),
+            "live": False,
+            "channel": streamer.username,
+            "vod_id": vod_id,
+            "content_mode": "video",
+        }
+        streamer.stream.payload = [
+            {"event": "minute-watched", "properties": properties}
+        ]
+
+        logger.info(f"Watching VOD {vod_id} to recover {streamer} watch streak")
+        for _ in range(max_minutes):
+            if streamer.stream.watch_streak_missing is False:
+                logger.info(f"Watch streak recovered for {streamer} via VOD")
+                return
+            try:
+                response = requests.post(
+                    streamer.stream.spade_url,
+                    data=streamer.stream.encode_payload(),
+                    headers={"User-Agent": self.user_agent},
+                    timeout=20,
+                )
+                logger.debug(
+                    f"VOD minute-watched for {streamer} - {response.status_code}"
+                )
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"VOD minute-watched failed for {streamer}: {e}")
+            time.sleep(60)
+
+        if streamer.stream.watch_streak_missing is True:
+            logger.info(f"VOD watch did not recover streak for {streamer}")
+
     def check_streamer_online(self, streamer):
         if time.time() < streamer.offline_at + 60:
             return

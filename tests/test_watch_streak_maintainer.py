@@ -143,3 +143,60 @@ def test_get_recent_vod_id_returns_none_on_bad_response():
     streamer.username = "foo"
     with mock.patch.object(Twitch, "post_gql_request", return_value={}):
         assert t.get_recent_vod_id(streamer) is None
+
+
+def test_watch_vod_posts_and_stops_when_streak_earned():
+    t = _twitch()
+    t.user_agent = "ua"
+    t.twitch_login = mock.MagicMock()
+    t.twitch_login.get_user_id.return_value = "777"
+
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    streamer.channel_id = "5"
+    streamer.stream.spade_url = "https://spade.example/track"
+    # Streak starts missing; sleep simulates the pubsub event flipping it to
+    # False so the loop stops after exactly one POST.
+    streamer.stream.watch_streak_missing = True
+
+    def _earn_streak(_seconds):
+        streamer.stream.watch_streak_missing = False
+
+    with mock.patch.object(Twitch, "get_spade_url") as mock_spade, mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.requests.post"
+    ) as post, mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.time.sleep",
+        side_effect=_earn_streak,
+    ):
+        post.return_value.status_code = 204
+        t.watch_vod_for_streak(streamer, "999", max_minutes=8)
+
+    assert post.call_count == 1  # stopped after streak earned
+
+
+def test_watch_vod_fetches_spade_url_when_missing():
+    t = _twitch()
+    t.user_agent = "ua"
+    t.twitch_login = mock.MagicMock()
+    t.twitch_login.get_user_id.return_value = "777"
+
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    streamer.channel_id = "5"
+    streamer.stream.spade_url = None
+    streamer.stream.watch_streak_missing = False
+
+    def _set_spade(s):
+        s.stream.spade_url = "https://spade.example/track"
+
+    with mock.patch.object(
+        Twitch, "get_spade_url", side_effect=_set_spade
+    ) as mock_spade, mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.requests.post"
+    ) as post, mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.time.sleep"
+    ):
+        post.return_value.status_code = 204
+        t.watch_vod_for_streak(streamer, "999", max_minutes=8)
+
+    mock_spade.assert_called_once_with(streamer)
