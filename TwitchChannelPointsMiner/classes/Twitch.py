@@ -50,7 +50,8 @@ from TwitchChannelPointsMiner.utils import (
 
 logger = logging.getLogger(__name__)
 
-# Minutes of watching required before Twitch awards a watch-streak bonus.
+# Guard value: keep sending watch events until at least this many minutes are
+# observed. Twitch awards the watch-streak bonus at ~6 min; 7 is a safe margin.
 STREAK_WATCH_MINUTES = 7
 
 JsonType = Dict[str, Any]
