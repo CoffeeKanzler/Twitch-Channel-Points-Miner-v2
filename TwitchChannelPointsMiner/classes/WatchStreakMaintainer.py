@@ -46,3 +46,32 @@ class WatchStreakMaintainer(threading.Thread):
         self.queue.put(streamer)
         logger.info(f"Queued {streamer} for VOD watch-streak recovery")
         return True
+
+    def _recover(self, streamer):
+        try:
+            vod_id = self.twitch.get_recent_vod_id(streamer)
+            if vod_id is None:
+                logger.info(f"No VOD available for {streamer}; cannot recover streak")
+                return
+            self.twitch.watch_vod_for_streak(
+                streamer, vod_id, max_minutes=self.streak_watch_minutes + 1
+            )
+        finally:
+            with self._lock:
+                self._queued.discard(streamer.channel_id)
+
+    def run(self):
+        while self.running:
+            try:
+                streamer = self.queue.get(timeout=1)
+            except Empty:
+                continue
+            try:
+                self._recover(streamer)
+            except Exception:
+                logger.error(
+                    "Exception in WatchStreakMaintainer", exc_info=True
+                )
+
+    def stop(self):
+        self.running = False

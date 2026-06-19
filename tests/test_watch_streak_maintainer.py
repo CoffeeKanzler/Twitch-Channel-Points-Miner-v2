@@ -200,3 +200,33 @@ def test_watch_vod_fetches_spade_url_when_missing():
         t.watch_vod_for_streak(streamer, "999", max_minutes=8)
 
     mock_spade.assert_called_once_with(streamer)
+
+
+def test_recover_calls_twitch_with_vod():
+    twitch = mock.MagicMock()
+    twitch.get_recent_vod_id.return_value = "42"
+    m = WatchStreakMaintainer(twitch=twitch, streak_watch_minutes=7)
+    streamer = mock.MagicMock()
+    m._recover(streamer)
+    twitch.get_recent_vod_id.assert_called_once_with(streamer)
+    twitch.watch_vod_for_streak.assert_called_once()
+    assert twitch.watch_vod_for_streak.call_args.args[1] == "42"
+
+
+def test_recover_skips_when_no_vod():
+    twitch = mock.MagicMock()
+    twitch.get_recent_vod_id.return_value = None
+    m = WatchStreakMaintainer(twitch=twitch, streak_watch_minutes=7)
+    m._recover(mock.MagicMock())
+    twitch.watch_vod_for_streak.assert_not_called()
+
+
+def test_recover_clears_dedup_so_channel_can_requeue():
+    twitch = mock.MagicMock()
+    twitch.get_recent_vod_id.return_value = "42"
+    m = WatchStreakMaintainer(twitch=twitch, streak_watch_minutes=7)
+    streamer = mock.MagicMock()
+    streamer.channel_id = "5"
+    m._queued.add("5")
+    m._recover(streamer)
+    assert "5" not in m._queued
