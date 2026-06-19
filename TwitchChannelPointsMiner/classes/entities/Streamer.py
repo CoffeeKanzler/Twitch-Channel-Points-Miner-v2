@@ -93,12 +93,13 @@ class Streamer(object):
         "history",
         "streamer_url",
         "mutex",
+        "watch_streak_maintainer",
     ]
 
     def __init__(self, username, settings=None):
         self.username: str = username.lower().strip()
         self.channel_id: str = ""
-        self.settings = settings
+        self.settings = settings if settings is not None else StreamerSettings()
         self.is_online = False
         self.stream_up = 0
         self.online_at = 0
@@ -118,6 +119,7 @@ class Streamer(object):
         self.streamer_url = f"{URL}/{self.username}"
 
         self.mutex = Lock()
+        self.watch_streak_maintainer = None
 
     def __repr__(self):
         return f"Streamer(username={self.username}, channel_id={self.channel_id}, channel_points={_millify(self.channel_points)})"
@@ -133,6 +135,8 @@ class Streamer(object):
         if self.is_online is True:
             self.offline_at = time.time()
             self.is_online = False
+            if self.watch_streak_maintainer is not None:
+                self.watch_streak_maintainer.maybe_enqueue(self)
 
         self.toggle_chat()
 
