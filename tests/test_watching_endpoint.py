@@ -35,15 +35,13 @@ def make_streamer(username, is_online):
 
 
 def make_server(currently_watching, streamers=None):
-    """Build an AnalyticsServer with asset-check patched out."""
-    import TwitchChannelPointsMiner.classes.AnalyticsServer as _mod
-    with mock.patch.object(_mod, "check_assets"):
-        server = AnalyticsServer(
-            host="127.0.0.1",
-            port=5099,
-            currently_watching=currently_watching,
-            streamers=streamers if streamers is not None else [],
-        )
+    """Build an AnalyticsServer (Flask app only; run() is never called)."""
+    server = AnalyticsServer(
+        host="127.0.0.1",
+        port=5099,
+        currently_watching=currently_watching,
+        all_streamers=streamers if streamers is not None else [],
+    )
     return server
 
 
@@ -230,14 +228,12 @@ class TestBackwardCompatibility:
         assert data["channels_str"] == "none"
 
     def test_no_streamers_kwarg_defaults_gracefully(self):
-        """AnalyticsServer without streamers= should still work (no crash)."""
-        import TwitchChannelPointsMiner.classes.AnalyticsServer as _mod
-        with mock.patch.object(_mod, "check_assets"):
-            server = AnalyticsServer(
-                host="127.0.0.1",
-                port=5098,
-                currently_watching=["streamer_a"],
-            )
+        """AnalyticsServer without all_streamers= should still work (no crash)."""
+        server = AnalyticsServer(
+            host="127.0.0.1",
+            port=5098,
+            currently_watching=["streamer_a"],
+        )
         data = json.loads(server.app.test_client().get("/watching").data)
         assert data["online"] == []
         assert data["watching"] == ["streamer_a"]
