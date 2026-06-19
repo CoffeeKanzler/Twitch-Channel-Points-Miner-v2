@@ -99,7 +99,7 @@ class Streamer(object):
     def __init__(self, username, settings=None):
         self.username: str = username.lower().strip()
         self.channel_id: str = ""
-        self.settings = settings if settings is not None else StreamerSettings()
+        self.settings = settings
         self.is_online = False
         self.stream_up = 0
         self.online_at = 0

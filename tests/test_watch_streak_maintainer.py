@@ -63,6 +63,7 @@ def test_dedup_same_channel():
 
 from TwitchChannelPointsMiner.classes.entities.Streamer import Streamer
 from TwitchChannelPointsMiner.classes.Settings import Settings
+from TwitchChannelPointsMiner.classes.Chat import ChatPresence
 
 # Settings.logger must be initialised before any Streamer.__str__ call (used
 # inside set_offline's logger.info).
@@ -71,8 +72,16 @@ _mock_logger.less = False
 Settings.logger = _mock_logger
 
 
+def _offline_test_streamer():
+    """A Streamer with explicit settings; chat=NEVER so set_offline's
+    toggle_chat short-circuits and needs no IRC machinery."""
+    s = Streamer("teststreamer", StreamerSettings())
+    s.settings.chat = ChatPresence.NEVER
+    return s
+
+
 def test_set_offline_enqueues_when_online():
-    s = Streamer("teststreamer")
+    s = _offline_test_streamer()
     s.channel_id = "5"
     s.is_online = True
     s.settings.watch_streak = True
@@ -86,7 +95,7 @@ def test_set_offline_enqueues_when_online():
 
 
 def test_set_offline_no_enqueue_when_already_offline():
-    s = Streamer("teststreamer")
+    s = _offline_test_streamer()
     s.is_online = False
     maint = mock.MagicMock()
     s.watch_streak_maintainer = maint
@@ -95,6 +104,6 @@ def test_set_offline_no_enqueue_when_already_offline():
 
 
 def test_set_offline_without_maintainer_does_not_crash():
-    s = Streamer("teststreamer")
+    s = _offline_test_streamer()
     s.is_online = True
     s.set_offline()  # watch_streak_maintainer defaults to None
