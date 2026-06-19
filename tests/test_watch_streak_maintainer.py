@@ -107,3 +107,39 @@ def test_set_offline_without_maintainer_does_not_crash():
     s = _offline_test_streamer()
     s.is_online = True
     s.set_offline()  # watch_streak_maintainer defaults to None
+
+
+from TwitchChannelPointsMiner.classes.Twitch import Twitch
+
+
+def _twitch():
+    t = Twitch.__new__(Twitch)  # bypass __init__/login
+    return t
+
+
+def test_get_recent_vod_id_parses_first_edge():
+    t = _twitch()
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    with mock.patch.object(Twitch, "post_gql_request", return_value={
+        "data": {"user": {"videos": {"edges": [{"node": {"id": "12345"}}]}}}
+    }):
+        assert t.get_recent_vod_id(streamer) == "12345"
+
+
+def test_get_recent_vod_id_returns_none_when_no_videos():
+    t = _twitch()
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    with mock.patch.object(Twitch, "post_gql_request", return_value={
+        "data": {"user": {"videos": {"edges": []}}}
+    }):
+        assert t.get_recent_vod_id(streamer) is None
+
+
+def test_get_recent_vod_id_returns_none_on_bad_response():
+    t = _twitch()
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    with mock.patch.object(Twitch, "post_gql_request", return_value={}):
+        assert t.get_recent_vod_id(streamer) is None

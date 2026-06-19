@@ -185,6 +185,35 @@ class Twitch(object):
             else:
                 return response["data"]["user"]
 
+    def get_recent_vod_id(self, streamer):
+        """Return the newest archived VOD id for the channel, or None.
+
+        Uses a raw GraphQL query (no persisted-query hash to rot). The
+        operationName key is included so post_gql_request's error handler
+        does not KeyError.
+        """
+        json_data = {
+            "operationName": "WatchStreakRecentVod",
+            "query": (
+                "query WatchStreakRecentVod($login: String!) {"
+                "  user(login: $login) {"
+                "    videos(first: 1, type: ARCHIVE, sort: TIME) {"
+                "      edges { node { id } }"
+                "    }"
+                "  }"
+                "}"
+            ),
+            "variables": {"login": streamer.username},
+        }
+        response = self.post_gql_request(json_data)
+        try:
+            edges = response["data"]["user"]["videos"]["edges"]
+            if not edges:
+                return None
+            return edges[0]["node"]["id"]
+        except (KeyError, TypeError, IndexError):
+            return None
+
     def check_streamer_online(self, streamer):
         if time.time() < streamer.offline_at + 60:
             return
