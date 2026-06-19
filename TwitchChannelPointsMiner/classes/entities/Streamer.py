@@ -25,6 +25,7 @@ class StreamerSettings(object):
         "community_goals",
         "bet",
         "chat",
+        "watch_streak_vod_recovery",
     ]
 
     def __init__(
@@ -37,6 +38,7 @@ class StreamerSettings(object):
         community_goals: bool = None,
         bet: BetSettings = None,
         chat: ChatPresence = None,
+        watch_streak_vod_recovery: bool = None,
     ):
         self.make_predictions = make_predictions
         self.follow_raid = follow_raid
@@ -46,6 +48,7 @@ class StreamerSettings(object):
         self.community_goals = community_goals
         self.bet = bet
         self.chat = chat
+        self.watch_streak_vod_recovery = watch_streak_vod_recovery
 
     def default(self):
         for name in [
@@ -59,13 +62,15 @@ class StreamerSettings(object):
                 setattr(self, name, True)
         if self.community_goals is None:
             self.community_goals = False
+        if self.watch_streak_vod_recovery is None:
+            self.watch_streak_vod_recovery = False
         if self.bet is None:
             self.bet = BetSettings()
         if self.chat is None:
             self.chat = ChatPresence.ONLINE
 
     def __repr__(self):
-        return f"BetSettings(make_predictions={self.make_predictions}, follow_raid={self.follow_raid}, claim_drops={self.claim_drops}, claim_moments={self.claim_moments}, watch_streak={self.watch_streak}, community_goals={self.community_goals}, bet={self.bet}, chat={self.chat})"
+        return f"BetSettings(make_predictions={self.make_predictions}, follow_raid={self.follow_raid}, claim_drops={self.claim_drops}, claim_moments={self.claim_moments}, watch_streak={self.watch_streak}, community_goals={self.community_goals}, bet={self.bet}, chat={self.chat}, watch_streak_vod_recovery={self.watch_streak_vod_recovery})"
 
 
 class Streamer(object):

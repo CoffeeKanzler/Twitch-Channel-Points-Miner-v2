@@ -49,6 +49,10 @@ from TwitchChannelPointsMiner.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Minutes of watching required before Twitch awards a watch-streak bonus.
+STREAK_WATCH_MINUTES = 7
+
 JsonType = Dict[str, Any]
 
 
@@ -465,7 +469,7 @@ class Twitch(object):
                                     > 30
                                 )
                                 # fix #425
-                                and streamers[index].stream.minute_watched < 7
+                                and streamers[index].stream.minute_watched < STREAK_WATCH_MINUTES
                             ):
                                 if not add_to_watching(index):
                                     break
