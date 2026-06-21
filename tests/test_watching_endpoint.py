@@ -63,18 +63,22 @@ class TestStreaksEndpoint:
     def test_streaks_data_status_codes(self):
         streamers = [
             make_streak_streamer("live_earned", True, watch_streak_missing=False, minute_watched=7.2),
-            make_streak_streamer("live_pending", True, watch_streak_missing=True, minute_watched=1.0),
+            make_streak_streamer("live_waiting", True, watch_streak_missing=True, minute_watched=1.0),
+            make_streak_streamer("live_earning", True, watch_streak_missing=True, minute_watched=2.7),
             make_streak_streamer("off", False),
         ]
+        # live_earning is in the 2 active watch slots
         data = json.loads(
-            make_server([], streamers).app.test_client().get("/streaks/data").data
+            make_server(["live_earning"], streamers).app.test_client().get("/streaks/data").data
         )
         by = {r["username"]: r for r in data["streamers"]}
         assert by["live_earned"]["status"] == "earned"
-        assert by["live_pending"]["status"] == "pending"
+        assert by["live_waiting"]["status"] == "waiting"
+        assert by["live_earning"]["status"] == "earning"
+        assert by["live_earning"]["watching"] is True
         assert by["off"]["status"] == "offline"
         assert by["live_earned"]["minute_watched"] == 7.2
-        assert by["live_pending"]["vod_recovery"] is True
+        assert by["live_waiting"]["vod_recovery"] is True
 
     def test_streaks_data_activity_empty_without_maintainer(self):
         data = json.loads(

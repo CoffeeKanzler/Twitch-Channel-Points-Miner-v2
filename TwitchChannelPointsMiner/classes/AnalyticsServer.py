@@ -300,23 +300,26 @@ class AnalyticsServer(Thread):
             return render_template("priority.html")
 
         def streaks_data():
-            def streak_status(s):
+            def streak_status(s, watching):
                 if not s.is_online:
                     return "offline"
                 # watch_streak_missing True => not yet earned this stream
                 if getattr(s.stream, "watch_streak_missing", True) is False:
                     return "earned"
-                return "pending"
+                # Online, streak not yet earned: distinguish actively-watched
+                # ("earning" now, in one of the 2 slots) from "waiting" its turn.
+                return "earning" if watching else "waiting"
 
             rows = [
                 {
                     "username": s.username,
                     "is_online": s.is_online,
+                    "watching": s.username in self.currently_watching,
                     "watch_streak": bool(getattr(s.settings, "watch_streak", False)),
                     "vod_recovery": bool(
                         getattr(s.settings, "watch_streak_vod_recovery", False)
                     ),
-                    "status": streak_status(s),
+                    "status": streak_status(s, s.username in self.currently_watching),
                     "minute_watched": round(
                         getattr(s.stream, "minute_watched", 0) or 0, 1
                     ),

@@ -27,8 +27,13 @@
             font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600;
         }
         .b-earned { background: #23d160; color: #fff; }
-        .b-pending { background: #ffdd57; color: #3a3a1a; }
+        .b-earning { background: #3273dc; color: #fff; }
+        .b-waiting { background: #ffdd57; color: #3a3a1a; }
         .b-offline { background: #dbdbdb; color: #7a7a7a; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+        .b-earning { animation: pulse 1.4s infinite; }
+        #summary { margin: 0 0 0.6rem; font-size: 0.95rem; }
+        #summary .chip { margin-right: 0.6rem; font-weight: 600; }
         .b-on { background: #3273dc; color: #fff; }
         .b-no { background: #dbdbdb; color: #7a7a7a; }
         .muted { color: #9a9a9a; }
@@ -64,7 +69,10 @@
         </div>
 
         <p class="title is-5" style="margin-bottom: 0.2rem;">Watch Streaks</p>
-        <p class="subtitle is-6">Per-streamer streak status and VOD-recovery activity. Auto-refreshes.</p>
+        <p class="subtitle is-6">Twitch only lets the miner watch 2 channels at once, so streaks are
+            earned 2 at a time (STREAK priority). "Waiting" channels are queued; VOD recovery covers any
+            that go offline first. Auto-refreshes.</p>
+        <p id="summary"></p>
 
         <div class="box" style="padding: 0.75rem;">
             <table class="table is-fullwidth is-narrow streak-table">
@@ -105,7 +113,8 @@
         }
         function statusBadge(s) {
             if (s === "earned") return '<span class="badge b-earned">earned</span>';
-            if (s === "pending") return '<span class="badge b-pending">at&nbsp;risk</span>';
+            if (s === "earning") return '<span class="badge b-earning">earning now</span>';
+            if (s === "waiting") return '<span class="badge b-waiting">waiting</span>';
             return '<span class="badge b-offline">offline</span>';
         }
         function fmtTime(ts) {
@@ -115,8 +124,16 @@
         function renderStreamers(rows) {
             const body = document.getElementById("streak-body");
             if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No streamers.</td></tr>'; return; }
-            // Online first, then pending/earned, then offline; stable otherwise
-            rows.sort(function(a, b) { return (b.is_online - a.is_online); });
+            // Order: earning now, then waiting, then earned, then offline
+            var rank = {earning: 0, waiting: 1, earned: 2, offline: 3};
+            rows.sort(function(a, b) { return (rank[a.status] - rank[b.status]); });
+            var c = {earning: 0, waiting: 0, earned: 0, offline: 0};
+            rows.forEach(function(r) { c[r.status] = (c[r.status] || 0) + 1; });
+            document.getElementById("summary").innerHTML =
+                '<span class="chip"><span class="badge b-earning">earning now</span> ' + c.earning + '</span>' +
+                '<span class="chip"><span class="badge b-waiting">waiting</span> ' + c.waiting + '</span>' +
+                '<span class="chip"><span class="badge b-earned">earned</span> ' + c.earned + '</span>' +
+                '<span class="chip"><span class="badge b-offline">offline</span> ' + c.offline + '</span>';
             body.innerHTML = rows.map(function(r) {
                 const dot = r.is_online ? '<span class="dot dot-on"></span>' : '<span class="dot dot-off"></span>';
                 const recov = r.vod_recovery ? '<span class="badge b-on">on</span>'
