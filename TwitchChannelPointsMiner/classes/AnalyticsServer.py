@@ -300,14 +300,23 @@ class AnalyticsServer(Thread):
             return render_template("priority.html")
 
         def streaks_data():
+            from TwitchChannelPointsMiner.classes.Twitch import STREAK_WATCH_MINUTES
+
             def streak_status(s, watching):
                 if not s.is_online:
                     return "offline"
-                # watch_streak_missing True => not yet earned this stream
+                # watch_streak_missing True => no WATCH_STREAK event received yet
                 if getattr(s.stream, "watch_streak_missing", True) is False:
                     return "earned"
-                # Online, streak not yet earned: distinguish actively-watched
-                # ("earning" now, in one of the 2 slots) from "waiting" its turn.
+                watched = getattr(s.stream, "minute_watched", 0) or 0
+                # Watched the full streak time but no event arrived: Twitch awards
+                # a streak only once per stream, so it's most likely already
+                # secured this stream (e.g. earned before a restart). We did our
+                # part -- this is "watched", not still "waiting" in the queue.
+                if watched >= STREAK_WATCH_MINUTES:
+                    return "watched"
+                # Online, under the threshold: actively in a slot ("earning") or
+                # queued behind the 2-slot limit ("waiting").
                 return "earning" if watching else "waiting"
 
             rows = [

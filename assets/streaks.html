@@ -27,6 +27,7 @@
             font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600;
         }
         .b-earned { background: #23d160; color: #fff; }
+        .b-watched { background: #2bc4a4; color: #fff; }
         .b-earning { background: #3273dc; color: #fff; }
         .b-waiting { background: #ffdd57; color: #3a3a1a; }
         .b-offline { background: #dbdbdb; color: #7a7a7a; }
@@ -112,7 +113,13 @@
             });
         }
         function statusBadge(s) {
-            if (s === "earned") return '<span class="badge b-earned">earned</span>';
+            if (s === "earned")
+                return '<span class="badge b-earned" title="WATCH_STREAK points event received from Twitch">' +
+                       '<i class="fas fa-check"></i>&nbsp;earned</span>';
+            if (s === "watched")
+                return '<span class="badge b-watched" title="Watched the full streak time, but no streak event arrived. ' +
+                       'Twitch awards a streak only once per stream, so it is most likely already secured this stream ' +
+                       '(or there is no active streak to earn on this channel).">watched</span>';
             if (s === "earning") return '<span class="badge b-earning">earning now</span>';
             if (s === "waiting") return '<span class="badge b-waiting">waiting</span>';
             return '<span class="badge b-offline">offline</span>';
@@ -124,15 +131,16 @@
         function renderStreamers(rows) {
             const body = document.getElementById("streak-body");
             if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No streamers.</td></tr>'; return; }
-            // Order: earning now, then waiting, then earned, then offline
-            var rank = {earning: 0, waiting: 1, earned: 2, offline: 3};
+            // Order: earning now, waiting, watched, earned, then offline
+            var rank = {earning: 0, waiting: 1, watched: 2, earned: 3, offline: 4};
             rows.sort(function(a, b) { return (rank[a.status] - rank[b.status]); });
-            var c = {earning: 0, waiting: 0, earned: 0, offline: 0};
+            var c = {earning: 0, waiting: 0, watched: 0, earned: 0, offline: 0};
             rows.forEach(function(r) { c[r.status] = (c[r.status] || 0) + 1; });
             document.getElementById("summary").innerHTML =
+                '<span class="chip"><span class="badge b-earned"><i class="fas fa-check"></i></span> ' + c.earned + ' earned</span>' +
+                '<span class="chip"><span class="badge b-watched">watched</span> ' + c.watched + '</span>' +
                 '<span class="chip"><span class="badge b-earning">earning now</span> ' + c.earning + '</span>' +
                 '<span class="chip"><span class="badge b-waiting">waiting</span> ' + c.waiting + '</span>' +
-                '<span class="chip"><span class="badge b-earned">earned</span> ' + c.earned + '</span>' +
                 '<span class="chip"><span class="badge b-offline">offline</span> ' + c.offline + '</span>';
             body.innerHTML = rows.map(function(r) {
                 const dot = r.is_online ? '<span class="dot dot-on"></span>' : '<span class="dot dot-off"></span>';

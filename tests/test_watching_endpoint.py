@@ -63,6 +63,7 @@ class TestStreaksEndpoint:
     def test_streaks_data_status_codes(self):
         streamers = [
             make_streak_streamer("live_earned", True, watch_streak_missing=False, minute_watched=7.2),
+            make_streak_streamer("live_watched", True, watch_streak_missing=True, minute_watched=7.0),
             make_streak_streamer("live_waiting", True, watch_streak_missing=True, minute_watched=1.0),
             make_streak_streamer("live_earning", True, watch_streak_missing=True, minute_watched=2.7),
             make_streak_streamer("off", False),
@@ -73,6 +74,8 @@ class TestStreaksEndpoint:
         )
         by = {r["username"]: r for r in data["streamers"]}
         assert by["live_earned"]["status"] == "earned"
+        # Watched >= 7 min but no event -> "watched", NOT stuck on "waiting"
+        assert by["live_watched"]["status"] == "watched"
         assert by["live_waiting"]["status"] == "waiting"
         assert by["live_earning"]["status"] == "earning"
         assert by["live_earning"]["watching"] is True
