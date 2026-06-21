@@ -65,6 +65,7 @@ class TwitchChannelPointsMiner:
         "minute_watcher_thread",
         "sync_campaigns_thread",
         "watch_streak_maintainer",
+        "analytics_server",
         "ws_pool",
         "session_id",
         "running",
@@ -150,6 +151,7 @@ class TwitchChannelPointsMiner:
         self.minute_watcher_thread = None
         self.sync_campaigns_thread = None
         self.watch_streak_maintainer = None
+        self.analytics_server = None
         self.ws_pool = None
 
         self.session_id = str(uuid.uuid4())
@@ -204,6 +206,9 @@ class TwitchChannelPointsMiner:
             http_server.daemon = True
             http_server.name = "Analytics Thread"
             http_server.start()
+            # Kept so run() can hand the maintainer to the /streaks dashboard
+            # once the maintainer is constructed later in startup.
+            self.analytics_server = http_server
         else:
             logger.error("Can't start analytics(), please set enable_analytics=True")
 
@@ -283,6 +288,11 @@ class TwitchChannelPointsMiner:
             self.watch_streak_maintainer = WatchStreakMaintainer(
                 self.twitch, streak_watch_minutes=STREAK_WATCH_MINUTES
             )
+            # Expose the maintainer's recovery feed to the /streaks dashboard.
+            if self.analytics_server is not None:
+                self.analytics_server.watch_streak_maintainer = (
+                    self.watch_streak_maintainer
+                )
             for username in streamers_name:
                 if username in streamers_name:
                     time.sleep(random.uniform(0.3, 0.7))
@@ -363,10 +373,21 @@ class TwitchChannelPointsMiner:
                 self.streamers, "watch_streak_vod_recovery", True
             ):
                 self.watch_streak_maintainer.start()
+                enabled_count = sum(
+                    1
+                    for s in self.streamers
+                    if s.settings.watch_streak_vod_recovery is True
+                )
+                logger.info(
+                    f"🔁  VOD watch-streak recovery active for {enabled_count}/"
+                    f"{len(self.streamers)} streamers (maintainer thread started)"
+                )
             else:
                 self.watch_streak_maintainer = None
                 for streamer in self.streamers:
                     streamer.watch_streak_maintainer = None
+                if self.analytics_server is not None:
+                    self.analytics_server.watch_streak_maintainer = None
 
             self.ws_pool = WebSocketsPool(
                 twitch=self.twitch,

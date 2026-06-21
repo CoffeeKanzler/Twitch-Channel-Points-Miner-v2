@@ -230,7 +230,8 @@ class Twitch(object):
             self.get_spade_url(streamer)
         if streamer.stream.spade_url is None:
             logger.debug(f"No spade_url for {streamer}; skip VOD streak recovery")
-            return
+            return {"recovered": False, "accepted": 0, "max": max_minutes,
+                    "reason": "no_spade_url"}
 
         # Live-validated 2026-06-21: Twitch accepts this VOD-shaped payload with
         # HTTP 204 (same as live minute-watched). Confirmation of the actual save
@@ -258,7 +259,7 @@ class Twitch(object):
         for _ in range(max_minutes):
             if streamer.stream.watch_streak_missing is False:
                 logger.info(f"Watch streak recovered for {streamer} via VOD")
-                return
+                return {"recovered": True, "accepted": accepted, "max": max_minutes}
             try:
                 response = requests.post(
                     streamer.stream.spade_url,
@@ -279,6 +280,7 @@ class Twitch(object):
             f"Sent {accepted}/{max_minutes} VOD watch events for {streamer}; "
             "Twitch confirms a save via a separate 'streak-recovered' milestone."
         )
+        return {"recovered": False, "accepted": accepted, "max": max_minutes}
 
     def check_streamer_online(self, streamer):
         if time.time() < streamer.offline_at + 60:

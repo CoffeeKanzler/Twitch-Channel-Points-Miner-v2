@@ -1,5 +1,7 @@
 import logging
 import threading
+import time
+from collections import deque
 from queue import Empty, Queue
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,18 @@ class WatchStreakMaintainer(threading.Thread):
         self.queue = Queue()
         self._queued = set()
         self._lock = threading.Lock()
+        # Bounded recovery-activity feed for the /streaks dashboard.
+        self.history = deque(maxlen=50)
+
+    def _record(self, username, status, detail=""):
+        """Append a recovery-activity event (newest last) for the dashboard."""
+        self.history.append(
+            {"ts": time.time(), "username": username, "status": status, "detail": detail}
+        )
+
+    def recovery_history(self):
+        """Return the recovery-activity feed, newest first (JSON-serializable)."""
+        return list(reversed(self.history))
 
     def maybe_enqueue(self, streamer) -> bool:
         """Queue the streamer for VOD recovery if its streak was missed.
@@ -63,6 +77,7 @@ class WatchStreakMaintainer(threading.Thread):
                 return False
             self._queued.add(streamer.channel_id)
         self.queue.put(streamer)
+        self._record(streamer.username, "queued")
         logger.info(
             f"[streak-recovery] Queued {streamer} for VOD watch-streak recovery "
             f"(missed live streak; queue size now {self.queue.qsize()})"
@@ -77,14 +92,24 @@ class WatchStreakMaintainer(threading.Thread):
                 logger.info(
                     f"[streak-recovery] No VOD available for {streamer}; cannot recover streak"
                 )
+                self._record(streamer.username, "no_vod")
                 return
             logger.info(f"[streak-recovery] Recovering {streamer} via VOD {vod_id}")
-            self.twitch.watch_vod_for_streak(
+            self._record(streamer.username, "recovering", f"VOD {vod_id}")
+            result = self.twitch.watch_vod_for_streak(
                 streamer, vod_id, max_minutes=self.streak_watch_minutes + 1
             )
+            result = result or {}
+            if result.get("recovered"):
+                detail = "recovered (streak event arrived)"
+                status = "recovered"
+            else:
+                detail = f"sent {result.get('accepted', '?')}/{result.get('max', '?')} events"
+                status = "sent"
+            self._record(streamer.username, status, f"VOD {vod_id} - {detail}")
             logger.info(
-                f"[streak-recovery] Finished VOD watch for {streamer}; watch the next "
-                "minute for a PubSub points-earned/milestone message to confirm the save"
+                f"[streak-recovery] Finished VOD watch for {streamer} ({detail}); watch "
+                "the next minute for a PubSub points-earned/milestone message to confirm"
             )
         finally:
             with self._lock:

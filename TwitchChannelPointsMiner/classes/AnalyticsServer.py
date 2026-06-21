@@ -202,6 +202,7 @@ class AnalyticsServer(Thread):
         username: str = None,
         currently_watching: list = None,
         all_streamers: list = None,
+        watch_streak_maintainer=None,
     ):
         super(AnalyticsServer, self).__init__()
 
@@ -212,6 +213,7 @@ class AnalyticsServer(Thread):
         self.username = username
         self.currently_watching = currently_watching if currently_watching is not None else []
         self.streamers = all_streamers if all_streamers is not None else []
+        self.watch_streak_maintainer = watch_streak_maintainer
         self.priority_file = os.path.join(Settings.analytics_path, "streamer_priority.json")
 
         def generate_log():
@@ -297,7 +299,47 @@ class AnalyticsServer(Thread):
         def priority_page():
             return render_template("priority.html")
 
+        def streaks_data():
+            def streak_status(s):
+                if not s.is_online:
+                    return "offline"
+                # watch_streak_missing True => not yet earned this stream
+                if getattr(s.stream, "watch_streak_missing", True) is False:
+                    return "earned"
+                return "pending"
+
+            rows = [
+                {
+                    "username": s.username,
+                    "is_online": s.is_online,
+                    "watch_streak": bool(getattr(s.settings, "watch_streak", False)),
+                    "vod_recovery": bool(
+                        getattr(s.settings, "watch_streak_vod_recovery", False)
+                    ),
+                    "status": streak_status(s),
+                    "minute_watched": round(
+                        getattr(s.stream, "minute_watched", 0) or 0, 1
+                    ),
+                }
+                for s in self.streamers
+            ]
+            activity = (
+                self.watch_streak_maintainer.recovery_history()
+                if self.watch_streak_maintainer is not None
+                else []
+            )
+            return Response(
+                json.dumps({"streamers": rows, "activity": activity}),
+                status=200,
+                mimetype="application/json",
+            )
+
+        def streaks_page():
+            return render_template("streaks.html")
+
         self.app.add_url_rule("/priority", "priority", priority_page, methods=["GET"])
+        self.app.add_url_rule("/streaks", "streaks", streaks_page, methods=["GET"])
+        self.app.add_url_rule("/streaks/data", "streaks_data", streaks_data, methods=["GET"])
         self.app.add_url_rule("/priority/order", "priority_order_get", get_priority_order, methods=["GET"])
         self.app.add_url_rule("/priority/order", "priority_order_set", set_priority_order, methods=["POST"])
         self.app.add_url_rule(

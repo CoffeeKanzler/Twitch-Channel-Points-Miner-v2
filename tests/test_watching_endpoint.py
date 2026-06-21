@@ -34,15 +34,66 @@ def make_streamer(username, is_online):
     return s
 
 
-def make_server(currently_watching, streamers=None):
+def make_server(currently_watching, streamers=None, watch_streak_maintainer=None):
     """Build an AnalyticsServer (Flask app only; run() is never called)."""
     server = AnalyticsServer(
         host="127.0.0.1",
         port=5099,
         currently_watching=currently_watching,
         all_streamers=streamers if streamers is not None else [],
+        watch_streak_maintainer=watch_streak_maintainer,
     )
     return server
+
+
+def make_streak_streamer(username, is_online, watch_streak_missing=True,
+                         minute_watched=0.0, vod_recovery=True, watch_streak=True):
+    """Streamer stub with the concrete (JSON-serializable) fields /streaks reads."""
+    s = mock.MagicMock()
+    s.username = username
+    s.is_online = is_online
+    s.settings.watch_streak = watch_streak
+    s.settings.watch_streak_vod_recovery = vod_recovery
+    s.stream.watch_streak_missing = watch_streak_missing
+    s.stream.minute_watched = minute_watched
+    return s
+
+
+class TestStreaksEndpoint:
+    def test_streaks_data_status_codes(self):
+        streamers = [
+            make_streak_streamer("live_earned", True, watch_streak_missing=False, minute_watched=7.2),
+            make_streak_streamer("live_pending", True, watch_streak_missing=True, minute_watched=1.0),
+            make_streak_streamer("off", False),
+        ]
+        data = json.loads(
+            make_server([], streamers).app.test_client().get("/streaks/data").data
+        )
+        by = {r["username"]: r for r in data["streamers"]}
+        assert by["live_earned"]["status"] == "earned"
+        assert by["live_pending"]["status"] == "pending"
+        assert by["off"]["status"] == "offline"
+        assert by["live_earned"]["minute_watched"] == 7.2
+        assert by["live_pending"]["vod_recovery"] is True
+
+    def test_streaks_data_activity_empty_without_maintainer(self):
+        data = json.loads(
+            make_server([], []).app.test_client().get("/streaks/data").data
+        )
+        assert data["activity"] == []
+
+    def test_streaks_data_activity_from_maintainer(self):
+        maint = mock.MagicMock()
+        maint.recovery_history.return_value = [
+            {"ts": 1.0, "username": "agurin", "status": "sent", "detail": "VOD 1 - sent 8/8"}
+        ]
+        server = make_server([], [], watch_streak_maintainer=maint)
+        data = json.loads(server.app.test_client().get("/streaks/data").data)
+        assert data["activity"][0]["username"] == "agurin"
+        assert data["activity"][0]["status"] == "sent"
+
+    def test_streaks_page_renders(self):
+        assert make_server([], []).app.test_client().get("/streaks").status_code == 200
 
 
 # ---------------------------------------------------------------------------

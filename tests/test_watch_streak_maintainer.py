@@ -261,3 +261,36 @@ def test_recover_clears_dedup_so_channel_can_requeue():
     m._queued.add("5")
     m._recover(streamer)
     assert "5" not in m._queued
+
+
+def test_history_records_enqueue_and_recovery_result():
+    twitch = mock.MagicMock()
+    twitch.get_recent_vod_id.return_value = "42"
+    twitch.watch_vod_for_streak.return_value = {
+        "recovered": False, "accepted": 8, "max": 8
+    }
+    m = WatchStreakMaintainer(twitch=twitch, streak_watch_minutes=7)
+    m.maybe_enqueue(_streamer(channel_id="9"))  # _streamer() has username via MagicMock
+    streamer = mock.MagicMock()
+    streamer.username = "agurin"
+    streamer.channel_id = "9"
+    m._recover(streamer)
+
+    feed = m.recovery_history()  # newest first
+    statuses = [e["status"] for e in feed]
+    assert "queued" in statuses
+    assert "recovering" in statuses
+    assert "sent" in statuses
+    # newest-first ordering: the final 'sent' event is at index 0
+    assert feed[0]["status"] == "sent"
+    assert "8/8" in feed[0]["detail"]
+
+
+def test_history_records_no_vod():
+    twitch = mock.MagicMock()
+    twitch.get_recent_vod_id.return_value = None
+    m = WatchStreakMaintainer(twitch=twitch, streak_watch_minutes=7)
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    m._recover(streamer)
+    assert m.recovery_history()[0]["status"] == "no_vod"
