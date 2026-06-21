@@ -248,6 +248,10 @@ class Twitch(object):
         streamer.stream.payload = [
             {"event": "minute-watched", "properties": properties}
         ]
+        logger.debug(
+            f"[streak-recovery] VOD watch payload for {streamer}: {properties} "
+            f"-> spade {streamer.stream.spade_url}"
+        )
 
         logger.info(f"Watching VOD {vod_id} to recover {streamer} watch streak")
         accepted = 0

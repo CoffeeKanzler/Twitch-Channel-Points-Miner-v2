@@ -31,30 +31,60 @@ class WatchStreakMaintainer(threading.Thread):
         online->offline transition.
         """
         settings = streamer.settings
-        if not settings.watch_streak or not settings.watch_streak_vod_recovery:
-            return False
         stream = streamer.stream
+        # Verbose decision trace (DEBUG -> captured in the log file) so we can
+        # see exactly why a streamer was or wasn't queued after going offline.
+        logger.debug(
+            f"[streak-recovery] evaluate {streamer}: "
+            f"watch_streak={settings.watch_streak} "
+            f"vod_recovery={settings.watch_streak_vod_recovery} "
+            f"watch_streak_missing={getattr(stream, 'watch_streak_missing', None)} "
+            f"minute_watched={getattr(stream, 'minute_watched', None)} "
+            f"threshold={self.streak_watch_minutes}"
+        )
+        if not settings.watch_streak or not settings.watch_streak_vod_recovery:
+            logger.debug(f"[streak-recovery] skip {streamer}: recovery not enabled")
+            return False
         if stream is None or stream.watch_streak_missing is not True:
+            logger.debug(
+                f"[streak-recovery] skip {streamer}: streak already earned/started this stream"
+            )
             return False
         if stream.minute_watched >= self.streak_watch_minutes:
+            logger.debug(
+                f"[streak-recovery] skip {streamer}: already watched "
+                f"{stream.minute_watched}m live (>= {self.streak_watch_minutes})"
+            )
             return False
 
         with self._lock:
             if streamer.channel_id in self._queued:
+                logger.debug(f"[streak-recovery] skip {streamer}: already queued")
                 return False
             self._queued.add(streamer.channel_id)
         self.queue.put(streamer)
-        logger.info(f"Queued {streamer} for VOD watch-streak recovery")
+        logger.info(
+            f"[streak-recovery] Queued {streamer} for VOD watch-streak recovery "
+            f"(missed live streak; queue size now {self.queue.qsize()})"
+        )
         return True
 
     def _recover(self, streamer):
         try:
+            logger.info(f"[streak-recovery] Processing {streamer}: looking up recent VOD")
             vod_id = self.twitch.get_recent_vod_id(streamer)
             if vod_id is None:
-                logger.info(f"No VOD available for {streamer}; cannot recover streak")
+                logger.info(
+                    f"[streak-recovery] No VOD available for {streamer}; cannot recover streak"
+                )
                 return
+            logger.info(f"[streak-recovery] Recovering {streamer} via VOD {vod_id}")
             self.twitch.watch_vod_for_streak(
                 streamer, vod_id, max_minutes=self.streak_watch_minutes + 1
+            )
+            logger.info(
+                f"[streak-recovery] Finished VOD watch for {streamer}; watch the next "
+                "minute for a PubSub points-earned/milestone message to confirm the save"
             )
         finally:
             with self._lock:
