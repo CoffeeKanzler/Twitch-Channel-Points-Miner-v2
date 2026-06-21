@@ -15,24 +15,27 @@ class WatchStreakMaintainer(threading.Thread):
     with the live watch slots.
     """
 
-    def __init__(self, twitch, streak_watch_minutes=7):
+    def __init__(self, twitch, streak_watch_minutes=7, store=None):
         super().__init__()
         self.name = "Watch streak maintainer"
         self.daemon = True
         self.twitch = twitch
         self.streak_watch_minutes = streak_watch_minutes
+        self.store = store
         self.running = True
         self.queue = Queue()
         self._queued = set()
         self._lock = threading.Lock()
-        # Bounded recovery-activity feed for the /streaks dashboard.
+        # Bounded in-memory recovery-activity feed (fallback when no store).
         self.history = deque(maxlen=50)
 
     def _record(self, username, status, detail=""):
-        """Append a recovery-activity event (newest last) for the dashboard."""
+        """Record a recovery-activity event (in-memory + persistent store)."""
         self.history.append(
             {"ts": time.time(), "username": username, "status": status, "detail": detail}
         )
+        if self.store is not None:
+            self.store.record(username, status, detail)
 
     def recovery_history(self):
         """Return the recovery-activity feed, newest first (JSON-serializable)."""
@@ -77,7 +80,7 @@ class WatchStreakMaintainer(threading.Thread):
                 return False
             self._queued.add(streamer.channel_id)
         self.queue.put(streamer)
-        self._record(streamer.username, "queued")
+        self._record(streamer.username, "missed", "offline before live streak earned")
         logger.info(
             f"[streak-recovery] Queued {streamer} for VOD watch-streak recovery "
             f"(missed live streak; queue size now {self.queue.qsize()})"

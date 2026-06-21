@@ -203,6 +203,7 @@ class AnalyticsServer(Thread):
         currently_watching: list = None,
         all_streamers: list = None,
         watch_streak_maintainer=None,
+        streak_store=None,
     ):
         super(AnalyticsServer, self).__init__()
 
@@ -214,6 +215,7 @@ class AnalyticsServer(Thread):
         self.currently_watching = currently_watching if currently_watching is not None else []
         self.streamers = all_streamers if all_streamers is not None else []
         self.watch_streak_maintainer = watch_streak_maintainer
+        self.streak_store = streak_store
         self.priority_file = os.path.join(Settings.analytics_path, "streamer_priority.json")
 
         def generate_log():
@@ -335,13 +337,22 @@ class AnalyticsServer(Thread):
                 }
                 for s in self.streamers
             ]
-            activity = (
-                self.watch_streak_maintainer.recovery_history()
-                if self.watch_streak_maintainer is not None
-                else []
-            )
+            # Prefer the persistent store (survives restarts) for the feed +
+            # tally; fall back to the in-memory maintainer history.
+            if self.streak_store is not None:
+                activity = self.streak_store.recent()
+                midnight = datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).timestamp()
+                tally = self.streak_store.tally(midnight)
+            elif self.watch_streak_maintainer is not None:
+                activity = self.watch_streak_maintainer.recovery_history()
+                tally = {"earned": 0, "missed": 0, "recovered": 0}
+            else:
+                activity = []
+                tally = {"earned": 0, "missed": 0, "recovered": 0}
             return Response(
-                json.dumps({"streamers": rows, "activity": activity}),
+                json.dumps({"streamers": rows, "activity": activity, "tally": tally}),
                 status=200,
                 mimetype="application/json",
             )
@@ -349,9 +360,34 @@ class AnalyticsServer(Thread):
         def streaks_page():
             return render_template("streaks.html")
 
+        def health():
+            online = sum(1 for s in self.streamers if s.is_online)
+            watching = len(self.currently_watching)
+            # Healthy = loaded streamers, and if anything is live we should be
+            # filling at least one watch slot. Gatus can alert on status != ok.
+            healthy = len(self.streamers) > 0 and (online == 0 or watching > 0)
+            earned_today = 0
+            if self.streak_store is not None:
+                midnight = datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).timestamp()
+                earned_today = self.streak_store.tally(midnight)["earned"]
+            return Response(
+                json.dumps({
+                    "status": "ok" if healthy else "degraded",
+                    "streamers_total": len(self.streamers),
+                    "online": online,
+                    "watching": watching,
+                    "streak_earned_today": earned_today,
+                }),
+                status=200 if healthy else 503,
+                mimetype="application/json",
+            )
+
         self.app.add_url_rule("/priority", "priority", priority_page, methods=["GET"])
         self.app.add_url_rule("/streaks", "streaks", streaks_page, methods=["GET"])
         self.app.add_url_rule("/streaks/data", "streaks_data", streaks_data, methods=["GET"])
+        self.app.add_url_rule("/health", "health", health, methods=["GET"])
         self.app.add_url_rule("/priority/order", "priority_order_get", get_priority_order, methods=["GET"])
         self.app.add_url_rule("/priority/order", "priority_order_set", set_priority_order, methods=["POST"])
         self.app.add_url_rule(

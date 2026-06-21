@@ -278,7 +278,7 @@ def test_history_records_enqueue_and_recovery_result():
 
     feed = m.recovery_history()  # newest first
     statuses = [e["status"] for e in feed]
-    assert "queued" in statuses
+    assert "missed" in statuses
     assert "recovering" in statuses
     assert "sent" in statuses
     # newest-first ordering: the final 'sent' event is at index 0
@@ -294,3 +294,17 @@ def test_history_records_no_vod():
     streamer.username = "foo"
     m._recover(streamer)
     assert m.recovery_history()[0]["status"] == "no_vod"
+
+
+def test_records_to_persistent_store_when_provided():
+    store = mock.MagicMock()
+    twitch = mock.MagicMock()
+    twitch.get_recent_vod_id.return_value = None
+    m = WatchStreakMaintainer(twitch=twitch, streak_watch_minutes=7, store=store)
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    m._recover(streamer)
+    # the no_vod event was persisted
+    assert any(
+        c.args[1] == "no_vod" for c in store.record.call_args_list
+    )

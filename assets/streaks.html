@@ -47,8 +47,9 @@
         .feed .who { font-weight: 600; min-width: 8rem; }
         .dark-mode .streak-table, .dark-mode .box { background: #2b2b3b; color: #f5f5f5; }
         .dark-mode .feed li { border-color: #444; }
-        .s-queued { color: #3273dc; }
-        .s-recovering { color: #ff9f1a; }
+        .s-earned { color: #23d160; font-weight: 600; }
+        .s-missed { color: #ff9f1a; }
+        .s-recovering { color: #3273dc; }
         .s-recovered { color: #23d160; font-weight: 600; }
         .s-sent { color: #c9a227; }
         .s-no_vod { color: #ff3860; }
@@ -90,6 +91,11 @@
                     <tr><td colspan="5" class="muted">Loading…</td></tr>
                 </tbody>
             </table>
+        </div>
+
+        <p class="title is-6" style="margin: 1.25rem 0 0.4rem;">Today</p>
+        <div class="box" id="tally" style="padding: 0.6rem 0.9rem;">
+            <span class="muted">Loading…</span>
         </div>
 
         <p class="title is-6" style="margin: 1.25rem 0 0.4rem;">Recovery activity</p>
@@ -173,11 +179,23 @@
                     '</li>';
             }).join("");
         }
+        function renderTally(t) {
+            t = t || {};
+            var el = document.getElementById("tally");
+            el.innerHTML =
+                '<span class="chip"><span class="badge b-earned"><i class="fas fa-check"></i></span> ' +
+                    (t.earned || 0) + ' earned (live)</span>' +
+                '<span class="chip"><span class="badge b-waiting">missed</span> ' +
+                    (t.missed || 0) + ' missed live</span>' +
+                '<span class="chip"><span class="badge b-watched">VOD</span> ' +
+                    (t.recovered || 0) + ' recovery attempts</span>';
+        }
         function load() {
             fetch("/streaks/data")
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     renderStreamers(d.streamers || []);
+                    renderTally(d.tally);
                     renderActivity(d.activity || []);
                     document.getElementById("status-msg").textContent =
                         "Updated " + new Date().toLocaleTimeString();

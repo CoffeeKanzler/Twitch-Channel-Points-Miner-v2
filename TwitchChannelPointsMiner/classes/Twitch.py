@@ -64,6 +64,7 @@ class Twitch(object):
         "twitch_login",
         "running",
         "currently_watching",
+        "streak_store",
         "device_id",
         # "integrity",
         # "integrity_expire",
@@ -85,6 +86,7 @@ class Twitch(object):
         )
         self.running = True
         self.currently_watching = []
+        self.streak_store = None
         # self.integrity = None
         # self.integrity_expire = 0
         self.client_session = token_hex(16)

@@ -285,14 +285,25 @@ class TwitchChannelPointsMiner:
                 extra={"emoji": ":nerd_face:"},
             )
             from TwitchChannelPointsMiner.classes.Twitch import STREAK_WATCH_MINUTES
-            self.watch_streak_maintainer = WatchStreakMaintainer(
-                self.twitch, streak_watch_minutes=STREAK_WATCH_MINUTES
+            from TwitchChannelPointsMiner.classes.StreakStore import StreakStore
+
+            # Persistent (SQLite) streak-event log for the /streaks tally + feed.
+            # Survives restarts; the live per-stream flag stays in-memory.
+            streak_store = StreakStore(
+                os.path.join(Settings.analytics_path, "streaks.sqlite3")
             )
-            # Expose the maintainer's recovery feed to the /streaks dashboard.
+            self.twitch.streak_store = streak_store
+            self.watch_streak_maintainer = WatchStreakMaintainer(
+                self.twitch,
+                streak_watch_minutes=STREAK_WATCH_MINUTES,
+                store=streak_store,
+            )
+            # Expose the maintainer's recovery feed + store to the /streaks dashboard.
             if self.analytics_server is not None:
                 self.analytics_server.watch_streak_maintainer = (
                     self.watch_streak_maintainer
                 )
+                self.analytics_server.streak_store = streak_store
             for username in streamers_name:
                 if username in streamers_name:
                     time.sleep(random.uniform(0.3, 0.7))

@@ -102,6 +102,40 @@ class TestStreaksEndpoint:
     def test_streaks_page_renders(self):
         assert make_server([], []).app.test_client().get("/streaks").status_code == 200
 
+    def test_streaks_data_tally_from_store(self):
+        store = mock.MagicMock()
+        store.recent.return_value = []
+        store.tally.return_value = {"earned": 3, "missed": 2, "recovered": 1}
+        server = AnalyticsServer(
+            host="127.0.0.1", port=5097, currently_watching=[],
+            all_streamers=[], streak_store=store,
+        )
+        data = json.loads(server.app.test_client().get("/streaks/data").data)
+        assert data["tally"] == {"earned": 3, "missed": 2, "recovered": 1}
+
+    def test_health_endpoint(self):
+        s_online = make_streamer("live", True)
+        server = AnalyticsServer(
+            host="127.0.0.1", port=5096,
+            currently_watching=["live"], all_streamers=[s_online],
+        )
+        resp = server.app.test_client().get("/health")
+        assert resp.status_code == 200
+        body = json.loads(resp.data)
+        assert body["status"] == "ok"
+        assert body["online"] == 1
+        assert body["watching"] == 1
+
+    def test_health_degraded_when_online_but_not_watching(self):
+        s_online = make_streamer("live", True)
+        server = AnalyticsServer(
+            host="127.0.0.1", port=5095,
+            currently_watching=[], all_streamers=[s_online],
+        )
+        resp = server.app.test_client().get("/health")
+        assert resp.status_code == 503
+        assert json.loads(resp.data)["status"] == "degraded"
+
 
 # ---------------------------------------------------------------------------
 # /watching response structure tests

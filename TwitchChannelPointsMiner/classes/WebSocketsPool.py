@@ -229,6 +229,16 @@ class WebSocketsPool:
                             ws.streamers[streamer_index].update_history(
                                 reason_code, earned
                             )
+                            # Persist confirmed watch-streak earns for /streaks
+                            if (
+                                reason_code == "WATCH_STREAK"
+                                and getattr(ws.twitch, "streak_store", None) is not None
+                            ):
+                                ws.twitch.streak_store.record(
+                                    ws.streamers[streamer_index].username,
+                                    "earned",
+                                    f"+{earned}",
+                                )
                             # Analytics switch
                             if Settings.enable_analytics is True:
                                 ws.streamers[streamer_index].persistent_annotations(
