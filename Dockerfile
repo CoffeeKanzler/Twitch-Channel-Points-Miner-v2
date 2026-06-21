@@ -10,8 +10,10 @@ ENV CRYPTOGRAPHY_DONT_BUILD_RUST=1
 
 RUN pip install --upgrade pip
 
-RUN apt-get update
-RUN apt-get upgrade -y
+# Single layer so the package index can't go stale between update and upgrade,
+# and --fix-missing tolerates the occasional unavailable bullseye archive
+# (the separate `RUN apt-get upgrade -y` upstream added breaks builds otherwise).
+RUN apt-get update && apt-get upgrade -y --fix-missing
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -qq -y --fix-missing --no-install-recommends \
     gcc \
     libffi-dev \
