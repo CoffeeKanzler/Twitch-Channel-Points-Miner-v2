@@ -202,6 +202,37 @@ def test_watch_vod_fetches_spade_url_when_missing():
     mock_spade.assert_called_once_with(streamer)
 
 
+def test_watch_vod_sends_all_events_and_reports_count_when_not_flipped():
+    """When watch_streak_missing never flips (the normal VOD case, since a
+    save is confirmed by a separate milestone), we send all max_minutes events
+    and log an honest completion count -- never a false 'did not recover'."""
+    t = _twitch()
+    t.user_agent = "ua"
+    t.twitch_login = mock.MagicMock()
+    t.twitch_login.get_user_id.return_value = "777"
+
+    streamer = mock.MagicMock()
+    streamer.username = "foo"
+    streamer.channel_id = "5"
+    streamer.stream.spade_url = "https://spade.example/track"
+    streamer.stream.watch_streak_missing = True  # never flips
+
+    with mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.requests.post"
+    ) as post, mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.time.sleep"
+    ), mock.patch(
+        "TwitchChannelPointsMiner.classes.Twitch.logger"
+    ) as log:
+        post.return_value.status_code = 204
+        t.watch_vod_for_streak(streamer, "999", max_minutes=4)
+
+    assert post.call_count == 4  # all events sent, no early stop
+    logged = " ".join(str(c.args[0]) for c in log.info.call_args_list)
+    assert "Sent 4/4" in logged
+    assert "did not recover" not in logged
+
+
 def test_recover_calls_twitch_with_vod():
     twitch = mock.MagicMock()
     twitch.get_recent_vod_id.return_value = "42"
