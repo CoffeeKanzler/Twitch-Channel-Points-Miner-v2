@@ -10,7 +10,10 @@ ENV CRYPTOGRAPHY_DONT_BUILD_RUST=1
 
 RUN pip install --upgrade pip
 
-RUN apt-get update
+# Single layer so the package index can't go stale between update and upgrade,
+# and --fix-missing tolerates the occasional unavailable bullseye archive
+# (the separate `RUN apt-get upgrade -y` upstream added breaks builds otherwise).
+RUN apt-get update && apt-get upgrade -y --fix-missing
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -qq -y --fix-missing --no-install-recommends \
     gcc \
     libffi-dev \
@@ -27,6 +30,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -qq -y --fix-missing --no-ins
     g++ \
     subversion \
     python3-dev \
+    python3.9 \
+    python3.9-dev \
+    python3.9-minimal \
   && if [ "${BUILDX_QEMU_ENV}" = "true" ] && [ "$(getconf LONG_BIT)" = "32" ]; then \
         pip install -U cryptography==3.3.2; \
      fi \
@@ -40,4 +46,5 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -qq -y --fix-missing --no-ins
   && rm -rf /usr/share/doc/*
 
 ADD ./TwitchChannelPointsMiner ./TwitchChannelPointsMiner
+ADD ./assets ./assets
 ENTRYPOINT [ "python", "run.py" ]

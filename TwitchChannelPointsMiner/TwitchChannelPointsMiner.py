@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import logging
 import os
 import random
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from TwitchChannelPointsMiner.classes.Chat import ChatPresence, ThreadChat
 from TwitchChannelPointsMiner.classes.entities.PubsubTopic import PubsubTopic
+from TwitchChannelPointsMiner.classes.WatchStreakMaintainer import WatchStreakMaintainer
 from TwitchChannelPointsMiner.classes.entities.Streamer import (
     Streamer,
     StreamerSettings,
@@ -62,6 +64,8 @@ class TwitchChannelPointsMiner:
         "events_predictions",
         "minute_watcher_thread",
         "sync_campaigns_thread",
+        "watch_streak_maintainer",
+        "analytics_server",
         "ws_pool",
         "session_id",
         "running",
@@ -146,6 +150,8 @@ class TwitchChannelPointsMiner:
         self.events_predictions = {}
         self.minute_watcher_thread = None
         self.sync_campaigns_thread = None
+        self.watch_streak_maintainer = None
+        self.analytics_server = None
         self.ws_pool = None
 
         self.session_id = str(uuid.uuid4())
@@ -194,10 +200,15 @@ class TwitchChannelPointsMiner:
                 refresh=refresh,
                 days_ago=days_ago,
                 username=self.username,
+                currently_watching=self.twitch.currently_watching,
+                all_streamers=self.streamers,
             )
             http_server.daemon = True
             http_server.name = "Analytics Thread"
             http_server.start()
+            # Kept so run() can hand the maintainer to the /streaks dashboard
+            # once the maintainer is constructed later in startup.
+            self.analytics_server = http_server
         else:
             logger.error("Can't start analytics(), please set enable_analytics=True")
 
@@ -255,10 +266,44 @@ class TwitchChannelPointsMiner:
                         streamers_name.append(username)
                         streamers_dict[username] = username.lower().strip()
 
+            # Apply saved watch priority order to streamers_name before loading,
+            # so the list is in priority order from the first append.
+            _priority_file = os.path.join(Settings.analytics_path, "streamer_priority.json")
+            if os.path.exists(_priority_file):
+                try:
+                    with open(_priority_file) as _f:
+                        _order = json.load(_f)
+                    _order_index = {u: i for i, u in enumerate(_order)}
+                    streamers_name.sort(
+                        key=lambda u: _order_index.get(u, len(_order))
+                    )
+                except Exception:
+                    pass
+
             logger.info(
                 f"Loading data for {len(streamers_name)} streamers. Please wait...",
                 extra={"emoji": ":nerd_face:"},
             )
+            from TwitchChannelPointsMiner.classes.Twitch import STREAK_WATCH_MINUTES
+            from TwitchChannelPointsMiner.classes.StreakStore import StreakStore
+
+            # Persistent (SQLite) streak-event log for the /streaks tally + feed.
+            # Survives restarts; the live per-stream flag stays in-memory.
+            streak_store = StreakStore(
+                os.path.join(Settings.analytics_path, "streaks.sqlite3")
+            )
+            self.twitch.streak_store = streak_store
+            self.watch_streak_maintainer = WatchStreakMaintainer(
+                self.twitch,
+                streak_watch_minutes=STREAK_WATCH_MINUTES,
+                store=streak_store,
+            )
+            # Expose the maintainer's recovery feed + store to the /streaks dashboard.
+            if self.analytics_server is not None:
+                self.analytics_server.watch_streak_maintainer = (
+                    self.watch_streak_maintainer
+                )
+                self.analytics_server.streak_store = streak_store
             for username in streamers_name:
                 if username in streamers_name:
                     time.sleep(random.uniform(0.3, 0.7))
@@ -282,6 +327,7 @@ class TwitchChannelPointsMiner:
                                 streamer.username,
                             )
                         self.streamers.append(streamer)
+                        streamer.watch_streak_maintainer = self.watch_streak_maintainer
                     except StreamerDoesNotExistException:
                         logger.info(
                             f"Streamer {username} does not exist",
@@ -333,6 +379,26 @@ class TwitchChannelPointsMiner:
             )
             self.minute_watcher_thread.name = "Minute watcher"
             self.minute_watcher_thread.start()
+
+            if at_least_one_value_in_settings_is(
+                self.streamers, "watch_streak_vod_recovery", True
+            ):
+                self.watch_streak_maintainer.start()
+                enabled_count = sum(
+                    1
+                    for s in self.streamers
+                    if s.settings.watch_streak_vod_recovery is True
+                )
+                logger.info(
+                    f"🔁  VOD watch-streak recovery active for {enabled_count}/"
+                    f"{len(self.streamers)} streamers (maintainer thread started)"
+                )
+            else:
+                self.watch_streak_maintainer = None
+                for streamer in self.streamers:
+                    streamer.watch_streak_maintainer = None
+                if self.analytics_server is not None:
+                    self.analytics_server.watch_streak_maintainer = None
 
             self.ws_pool = WebSocketsPool(
                 twitch=self.twitch,
@@ -433,6 +499,11 @@ class TwitchChannelPointsMiner:
 
         if self.minute_watcher_thread is not None:
             self.minute_watcher_thread.join()
+
+        if self.watch_streak_maintainer is not None:
+            self.watch_streak_maintainer.stop()
+            if self.watch_streak_maintainer.is_alive():
+                self.watch_streak_maintainer.join()
 
         if self.sync_campaigns_thread is not None:
             self.sync_campaigns_thread.join()

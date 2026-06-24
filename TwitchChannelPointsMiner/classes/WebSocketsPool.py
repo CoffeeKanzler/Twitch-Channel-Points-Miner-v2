@@ -191,6 +191,19 @@ class WebSocketsPool:
             if streamer_index != -1:
                 try:
                     if message.topic == "community-points-user-v1":
+                        # Surface anything streak/milestone/recovery-related at INFO
+                        # so a VOD watch-streak recovery is visible in docker logs
+                        # (raw messages are already DEBUG-logged to the log file).
+                        # Skip plain points-earned WATCH_STREAK, which is already
+                        # logged below, to avoid duplicate noise.
+                        _raw = str(message.data).lower()
+                        if ("milestone" in _raw or "recover" in _raw) or (
+                            "streak" in _raw and message.type != "points-earned"
+                        ):
+                            logger.info(
+                                f"[streak-pubsub] {ws.streamers[streamer_index]} "
+                                f"type={message.type}: {message.data}"
+                            )
                         if message.type in ["points-earned", "points-spent"]:
                             balance = message.data["balance"]["balance"]
                             ws.streamers[streamer_index].channel_points = balance
@@ -216,6 +229,16 @@ class WebSocketsPool:
                             ws.streamers[streamer_index].update_history(
                                 reason_code, earned
                             )
+                            # Persist confirmed watch-streak earns for /streaks
+                            if (
+                                reason_code == "WATCH_STREAK"
+                                and getattr(ws.twitch, "streak_store", None) is not None
+                            ):
+                                ws.twitch.streak_store.record(
+                                    ws.streamers[streamer_index].username,
+                                    "earned",
+                                    f"+{earned}",
+                                )
                             # Analytics switch
                             if Settings.enable_analytics is True:
                                 ws.streamers[streamer_index].persistent_annotations(

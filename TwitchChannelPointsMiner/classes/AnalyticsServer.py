@@ -9,7 +9,6 @@ import pandas as pd
 from flask import Flask, Response, cli, render_template, request
 
 from TwitchChannelPointsMiner.classes.Settings import Settings
-from TwitchChannelPointsMiner.utils import download_file
 
 cli.show_server_banner = lambda *_: None
 logger = logging.getLogger(__name__)
@@ -20,7 +19,9 @@ def streamers_available():
     return [
         f
         for f in os.listdir(path)
-        if os.path.isfile(os.path.join(path, f)) and f.endswith(".json")
+        if os.path.isfile(os.path.join(path, f))
+        and f.endswith(".json")
+        and f != "streamer_priority.json"
     ]
 
 
@@ -189,39 +190,6 @@ def streamers():
     )
 
 
-def download_assets(assets_folder, required_files):
-    Path(assets_folder).mkdir(parents=True, exist_ok=True)
-    logger.info(f"Downloading assets to {assets_folder}")
-
-    for f in required_files:
-        if os.path.isfile(os.path.join(assets_folder, f)) is False:
-            if (
-                download_file(os.path.join("assets", f),
-                              os.path.join(assets_folder, f))
-                is True
-            ):
-                logger.info(f"Downloaded {f}")
-
-
-def check_assets():
-    required_files = [
-        "banner.png",
-        "charts.html",
-        "script.js",
-        "style.css",
-        "dark-theme.css",
-    ]
-    assets_folder = os.path.join(Path().absolute(), "assets")
-    if os.path.isdir(assets_folder) is False:
-        logger.info(f"Assets folder not found at {assets_folder}")
-        download_assets(assets_folder, required_files)
-    else:
-        for f in required_files:
-            if os.path.isfile(os.path.join(assets_folder, f)) is False:
-                logger.info(f"Missing file {f} in {assets_folder}")
-                download_assets(assets_folder, required_files)
-                break
-
 last_sent_log_index = 0
 
 class AnalyticsServer(Thread):
@@ -231,17 +199,24 @@ class AnalyticsServer(Thread):
         port: int = 5000,
         refresh: int = 5,
         days_ago: int = 7,
-        username: str = None
+        username: str = None,
+        currently_watching: list = None,
+        all_streamers: list = None,
+        watch_streak_maintainer=None,
+        streak_store=None,
     ):
         super(AnalyticsServer, self).__init__()
-
-        check_assets()
 
         self.host = host
         self.port = port
         self.refresh = refresh
         self.days_ago = days_ago
         self.username = username
+        self.currently_watching = currently_watching if currently_watching is not None else []
+        self.streamers = all_streamers if all_streamers is not None else []
+        self.watch_streak_maintainer = watch_streak_maintainer
+        self.streak_store = streak_store
+        self.priority_file = os.path.join(Settings.analytics_path, "streamer_priority.json")
 
         def generate_log():
             global last_sent_log_index  # Use the global variable
@@ -283,8 +258,142 @@ class AnalyticsServer(Thread):
         )
         self.app.add_url_rule("/json_all", "json_all",
                               json_all, methods=["GET"])
+        def watching_now():
+            watching = list(self.currently_watching)
+            online = [s.username for s in self.streamers if s.is_online]
+            return Response(
+                json.dumps({
+                    # new fields
+                    "watching": watching,
+                    "online": online,
+                    "count_watching": len(watching),
+                    "count_online": len(online),
+                    # backward-compat fields
+                    "count": len(watching),
+                    "channels": watching,
+                    "channels_str": ", ".join(watching) if watching else "none",
+                }),
+                status=200,
+                mimetype="application/json",
+            )
+
+        def get_priority_order():
+            return Response(json.dumps([
+                {
+                    "username": s.username,
+                    "is_online": s.is_online,
+                    "watching": s.username in self.currently_watching,
+                }
+                for s in self.streamers
+            ]), status=200, mimetype="application/json")
+
+        def set_priority_order():
+            data = request.get_json(force=True)
+            new_order = data.get("order", [])  # list of usernames
+            lookup = {s.username: s for s in self.streamers}
+            ordered = [lookup[u] for u in new_order if u in lookup]
+            remaining = [s for s in self.streamers if s.username not in set(new_order)]
+            self.streamers[:] = ordered + remaining
+            with open(self.priority_file, "w") as f:
+                json.dump([s.username for s in self.streamers], f)
+            return Response('{"ok":true}', status=200, mimetype="application/json")
+
+        def priority_page():
+            return render_template("priority.html")
+
+        def streaks_data():
+            from TwitchChannelPointsMiner.classes.Twitch import STREAK_WATCH_MINUTES
+
+            def streak_status(s, watching):
+                if not s.is_online:
+                    return "offline"
+                # watch_streak_missing True => no WATCH_STREAK event received yet
+                if getattr(s.stream, "watch_streak_missing", True) is False:
+                    return "earned"
+                watched = getattr(s.stream, "minute_watched", 0) or 0
+                # Watched the full streak time but no event arrived: Twitch awards
+                # a streak only once per stream, so it's most likely already
+                # secured this stream (e.g. earned before a restart). We did our
+                # part -- this is "watched", not still "waiting" in the queue.
+                if watched >= STREAK_WATCH_MINUTES:
+                    return "watched"
+                # Online, under the threshold: actively in a slot ("earning") or
+                # queued behind the 2-slot limit ("waiting").
+                return "earning" if watching else "waiting"
+
+            rows = [
+                {
+                    "username": s.username,
+                    "is_online": s.is_online,
+                    "watching": s.username in self.currently_watching,
+                    "watch_streak": bool(getattr(s.settings, "watch_streak", False)),
+                    "vod_recovery": bool(
+                        getattr(s.settings, "watch_streak_vod_recovery", False)
+                    ),
+                    "status": streak_status(s, s.username in self.currently_watching),
+                    "minute_watched": round(
+                        getattr(s.stream, "minute_watched", 0) or 0, 1
+                    ),
+                }
+                for s in self.streamers
+            ]
+            # Prefer the persistent store (survives restarts) for the feed +
+            # tally; fall back to the in-memory maintainer history.
+            if self.streak_store is not None:
+                activity = self.streak_store.recent()
+                midnight = datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).timestamp()
+                tally = self.streak_store.tally(midnight)
+            elif self.watch_streak_maintainer is not None:
+                activity = self.watch_streak_maintainer.recovery_history()
+                tally = {"earned": 0, "missed": 0, "recovered": 0}
+            else:
+                activity = []
+                tally = {"earned": 0, "missed": 0, "recovered": 0}
+            return Response(
+                json.dumps({"streamers": rows, "activity": activity, "tally": tally}),
+                status=200,
+                mimetype="application/json",
+            )
+
+        def streaks_page():
+            return render_template("streaks.html")
+
+        def health():
+            online = sum(1 for s in self.streamers if s.is_online)
+            watching = len(self.currently_watching)
+            # Healthy = loaded streamers, and if anything is live we should be
+            # filling at least one watch slot. Gatus can alert on status != ok.
+            healthy = len(self.streamers) > 0 and (online == 0 or watching > 0)
+            earned_today = 0
+            if self.streak_store is not None:
+                midnight = datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).timestamp()
+                earned_today = self.streak_store.tally(midnight)["earned"]
+            return Response(
+                json.dumps({
+                    "status": "ok" if healthy else "degraded",
+                    "streamers_total": len(self.streamers),
+                    "online": online,
+                    "watching": watching,
+                    "streak_earned_today": earned_today,
+                }),
+                status=200 if healthy else 503,
+                mimetype="application/json",
+            )
+
+        self.app.add_url_rule("/priority", "priority", priority_page, methods=["GET"])
+        self.app.add_url_rule("/streaks", "streaks", streaks_page, methods=["GET"])
+        self.app.add_url_rule("/streaks/data", "streaks_data", streaks_data, methods=["GET"])
+        self.app.add_url_rule("/health", "health", health, methods=["GET"])
+        self.app.add_url_rule("/priority/order", "priority_order_get", get_priority_order, methods=["GET"])
+        self.app.add_url_rule("/priority/order", "priority_order_set", set_priority_order, methods=["POST"])
         self.app.add_url_rule(
             "/log", "log", generate_log, methods=["GET"])
+        self.app.add_url_rule(
+            "/watching", "watching", watching_now, methods=["GET"])
 
     def run(self):
         logger.info(

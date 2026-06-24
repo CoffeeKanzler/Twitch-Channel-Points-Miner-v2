@@ -25,6 +25,7 @@ class StreamerSettings(object):
         "community_goals",
         "bet",
         "chat",
+        "watch_streak_vod_recovery",
     ]
 
     def __init__(
@@ -37,6 +38,7 @@ class StreamerSettings(object):
         community_goals: bool = None,
         bet: BetSettings = None,
         chat: ChatPresence = None,
+        watch_streak_vod_recovery: bool = None,
     ):
         self.make_predictions = make_predictions
         self.follow_raid = follow_raid
@@ -46,6 +48,7 @@ class StreamerSettings(object):
         self.community_goals = community_goals
         self.bet = bet
         self.chat = chat
+        self.watch_streak_vod_recovery = watch_streak_vod_recovery
 
     def default(self):
         for name in [
@@ -59,13 +62,15 @@ class StreamerSettings(object):
                 setattr(self, name, True)
         if self.community_goals is None:
             self.community_goals = False
+        if self.watch_streak_vod_recovery is None:
+            self.watch_streak_vod_recovery = False
         if self.bet is None:
             self.bet = BetSettings()
         if self.chat is None:
             self.chat = ChatPresence.ONLINE
 
     def __repr__(self):
-        return f"BetSettings(make_predictions={self.make_predictions}, follow_raid={self.follow_raid}, claim_drops={self.claim_drops}, claim_moments={self.claim_moments}, watch_streak={self.watch_streak}, community_goals={self.community_goals}, bet={self.bet}, chat={self.chat})"
+        return f"BetSettings(make_predictions={self.make_predictions}, follow_raid={self.follow_raid}, claim_drops={self.claim_drops}, claim_moments={self.claim_moments}, watch_streak={self.watch_streak}, community_goals={self.community_goals}, bet={self.bet}, chat={self.chat}, watch_streak_vod_recovery={self.watch_streak_vod_recovery})"
 
 
 class Streamer(object):
@@ -88,6 +93,7 @@ class Streamer(object):
         "history",
         "streamer_url",
         "mutex",
+        "watch_streak_maintainer",
     ]
 
     def __init__(self, username, settings=None):
@@ -113,6 +119,7 @@ class Streamer(object):
         self.streamer_url = f"{URL}/{self.username}"
 
         self.mutex = Lock()
+        self.watch_streak_maintainer = None
 
     def __repr__(self):
         return f"Streamer(username={self.username}, channel_id={self.channel_id}, channel_points={_millify(self.channel_points)})"
@@ -128,6 +135,8 @@ class Streamer(object):
         if self.is_online is True:
             self.offline_at = time.time()
             self.is_online = False
+            if self.watch_streak_maintainer is not None:
+                self.watch_streak_maintainer.maybe_enqueue(self)
 
         self.toggle_chat()
 
